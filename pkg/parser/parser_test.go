@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strconv"
 	"testing"
 	"unicode"
 
@@ -572,6 +573,17 @@ func TestParseExpr(t *testing.T) {
 			if assert.NoError(err) {
 				assert.Equal(tt.e, e, tt.s)
 			}
+		})
+	}
+}
+
+func TestParseExprOutOfRangeConst(t *testing.T) {
+	// Numeric literals that overflow float64 must still fail to parse instead
+	// of falling back to being treated as metric names.
+	for _, in := range []string{"1e309", "-1e309", "func(metric, 1e309)"} {
+		t.Run(in, func(t *testing.T) {
+			_, _, err := ParseExpr(in)
+			assert.ErrorIs(t, err, strconv.ErrRange)
 		})
 	}
 }

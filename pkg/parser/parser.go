@@ -2,6 +2,7 @@ package parser
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -613,7 +614,10 @@ func parseExprWithoutPipe(e string) (Expr, string, error) {
 	}
 
 	if IsDigit(e[0]) || e[0] == '-' || e[0] == '+' {
-		exp, rest, ok := parseConstExpr(e)
+		exp, rest, ok, err := parseConstExpr(e)
+		if err != nil {
+			return nil, rest, err
+		}
 		if ok {
 			return exp, rest, nil
 		}
@@ -654,23 +658,28 @@ func parseExprWithoutPipe(e string) (Expr, string, error) {
 	return &expr{target: name}, e, nil
 }
 
-func parseConstExpr(e string) (*expr, string, bool) {
+func parseConstExpr(e string) (*expr, string, bool, error) {
 	val, valStr, rest, err := parseConst(e)
 	if err != nil {
-		// A failure means the greedily-slurped run of [0-9.+-eE] characters is
-		// not a valid float, e.g. a root metric name like "587-AL". Let the
-		// caller parse the original token as a metric name instead.
-		return nil, e, false
+		if errors.Is(err, strconv.ErrRange) {
+			// A well-formed numeric literal that does not fit in a float64
+			// (e.g. "1e309") is still an invalid number, not a metric name.
+			return nil, rest, false, err
+		}
+		// A syntax failure means the greedily-slurped run of [0-9.+-eE]
+		// characters is not a valid float, e.g. a root metric name like
+		// "587-AL". Let the caller parse the original token as a metric name.
+		return nil, e, false, nil
 	}
 
 	if rest != "" {
 		r, size := utf8.DecodeRuneInString(rest)
 		if size > 0 && unicode.IsLetter(r) {
-			return nil, e, false
+			return nil, e, false, nil
 		}
 	}
 
-	return &expr{val: val, etype: EtConst, valStr: valStr}, rest, true
+	return &expr{val: val, etype: EtConst, valStr: valStr}, rest, true, nil
 }
 
 func parseExprInner(e string) (Expr, string, error) {
